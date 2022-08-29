@@ -1,6 +1,6 @@
 [package]
 authors = ["bnjmnt <bnjmnt@duck.com>"]
-categories = ["developer-tools", "simulation"]
+categories = ["simulation"]
 description = "A library that allows distributed applications to work with Maelstrom"
 edition = "2021"
 homepage = "https://github.com/bnjmnt/async-maelstrom"
@@ -9,7 +9,7 @@ license-file = "LICENSE"
 name = "async-maelstrom"
 readme = "README.md"
 repository = "https://github.com/bnjmnt/async-maelstrom"
-version = "0.1.0"
+version = "0.1.1"
 
 [dependencies]
 async-std = { version = "1", features = ["async-io"] }
