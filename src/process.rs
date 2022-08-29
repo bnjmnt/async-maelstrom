@@ -14,20 +14,24 @@ use crate::{Id, Status};
 
 /// The process' interface to the Maelstrom network
 ///
-/// `M` a node-to-node protocol message.
-pub struct ProcNet<M>
+/// Parameters
+/// - `W` the workload body type, e.g. [Echo](crate::msg::Echo)
+/// - `A` the application body type
+pub struct ProcNet<W, A>
 where
-    M: DeserializeOwned + Serialize,
+    W: DeserializeOwned + Serialize,
+    A: DeserializeOwned + Serialize,
 {
     /// Transmit queue
-    pub txq: Sender<Msg<M>>,
+    pub txq: Sender<Msg<W, A>>,
     /// Receive queue
-    pub rxq: Receiver<Msg<M>>,
+    pub rxq: Receiver<Msg<W, A>>,
 }
 
-impl<M> Default for ProcNet<M>
+impl<W, A> Default for ProcNet<W, A>
 where
-    M: DeserializeOwned + Serialize,
+    W: DeserializeOwned + Serialize,
+    A: DeserializeOwned + Serialize,
 {
     fn default() -> Self {
         let (txq, rxq) = bounded(1);
@@ -42,11 +46,14 @@ where
 /// - node-to-node messages according to the application's protocol that are delivered by the
 ///   [crate::runtime::Runtime] via the process's [ProcNet] instance.
 ///
-/// `M` s an application protocol message.
+/// Parameters
+/// - `W` the workload body type, e.g. [Echo](crate::msg::Echo)
+/// - `A` the application body type
 #[async_trait]
-pub trait Process<M>
+pub trait Process<W, A>
 where
-    M: DeserializeOwned + Serialize,
+    W: DeserializeOwned + Serialize,
+    A: DeserializeOwned + Serialize,
 {
     /// Create a process
     ///
@@ -59,7 +66,7 @@ where
     fn init(
         &mut self,
         args: Vec<String>,
-        net: ProcNet<M>,
+        net: ProcNet<W, A>,
         id: Id,
         ids: Vec<Id>,
         start_msg_id: MsgId,

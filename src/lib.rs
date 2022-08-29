@@ -77,8 +77,12 @@ impl From<RecvError> for Error {
     }
 }
 
-impl<M: DeserializeOwned + Serialize> From<SendError<Msg<M>>> for Error {
-    fn from(_: SendError<Msg<M>>) -> Self {
+impl<W, A> From<SendError<Msg<W, A>>> for Error
+where
+    W: DeserializeOwned + Serialize,
+    A: DeserializeOwned + Serialize,
+{
+    fn from(_: SendError<Msg<W, A>>) -> Self {
         Shutdown
     }
 }

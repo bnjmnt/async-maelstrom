@@ -3,8 +3,7 @@
 //! A message Maelstrom workload client message can be created as follows
 //! ```no_compile_
 //! use async_maelstrom::msg::Msg;
-//! use async_maelstrom::msg::Body::Client;
-//! use async_maelstrom::msg::Client::{Echo, EchoOk};
+//! use async_maelstrom::msg::Body::Echo;
 //!
 //! // Receive an echo request
 //! let request = recv();
@@ -18,7 +17,7 @@
 //!     let response: Msg<()> = Msg {
 //!         src: node_id,
 //!         dest: client_id,
-//!         body: Client(EchoOk {
+//!         body: Echo(EchoOk {
 //!             in_reply_to: msg_id,
 //!             msg_id: Some(5),
 //!             echo,
@@ -36,15 +35,9 @@ use serde_json::json;
 use serde_json::Value;
 
 #[cfg(test)]
-use crate::msg::Client::Cas;
+use crate::msg::Body::Application;
 #[cfg(test)]
-use crate::msg::Client::CasOk;
-#[cfg(test)]
-use crate::msg::Client::Echo;
-#[cfg(test)]
-use crate::msg::Client::Read;
-#[cfg(test)]
-use crate::msg::Client::ReadOk;
+use crate::msg::Body::Workload;
 use crate::{ErrorCode, Id};
 
 /// Maelstrom network [message](https://github.com/jepsen-io/maelstrom/blob/main/doc/protocol.md#messages)
@@ -56,23 +49,24 @@ use crate::{ErrorCode, Id};
 ///
 /// Maelstrom defined bodies have a `type` field. Inter node message may have a `type` field,
 /// populated with their specified message type value.
+///
+/// Messages are parameterized on a workload body type, `W`, and an application body type `A`.
+/// The workload parameter is required to disambiguate Maelstrom messages when deserializing into the
+/// target Rust type.
+///
+/// Parameters
+/// - `W` the workload body type, e.g. [Echo]
+/// - `A` the application body type
 #[derive(Deserialize, Serialize, Debug, Eq, PartialEq)]
-pub struct Msg<T> {
+pub struct Msg<W, A> {
     pub src: Id,
     pub dest: Id,
-    pub body: Body<T>,
+    pub body: Body<W, A>,
 }
 
-/// A Maelstrom network message body
 #[derive(Deserialize, Serialize, Debug, Eq, PartialEq)]
 #[serde(untagged)]
-pub enum Body<T> {
-    /// A Maelstrom defined workload client message
-    Client(Client),
-    /// A Maelstrom defined node initialization message
-    Init(Init),
-    /// A Maelstrom defined error response
-    Error(Error),
+pub enum Body<W, A> {
     /// An application defined node-to-node message
     ///
     /// From the Maelstrom [message documentation](https://github.com/jepsen-io/maelstrom/blob/main/doc/protocol.md#messages)
@@ -81,26 +75,16 @@ pub enum Body<T> {
     ///   invent any message semantics you choose. If some of your messages do
     ///   use the body format described above, Maelstrom can help generate useful
     ///   visualizations and statistics for those messages.
-    Node(T),
+    Application(A),
+    Error(Error),
+    Init(Init),
+    Workload(W),
 }
 
 /// Maelstrom [client message body](https://github.com/jepsen-io/maelstrom/blob/main/doc/protocol.md#message-bodies)
 #[derive(Deserialize, Serialize, Debug, Eq, PartialEq)]
 #[serde(tag = "type")]
-pub enum Client {
-    #[serde(rename = "cas")]
-    Cas {
-        msg_id: MsgId,
-        key: Key,
-        from: Val,
-        to: Val,
-    },
-    #[serde(rename = "cas_ok")]
-    CasOk {
-        in_reply_to: MsgId,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        msg_id: Option<MsgId>,
-    },
+pub enum Echo {
     #[serde(rename = "echo")]
     Echo { msg_id: MsgId, echo: Value },
     #[serde(rename = "echo_ok")]
@@ -110,19 +94,6 @@ pub enum Client {
         msg_id: Option<MsgId>,
         echo: Value,
     },
-    #[serde(rename = "read")]
-    Read { msg_id: MsgId, key: Key },
-    #[serde(rename = "read_ok")]
-    ReadOk {
-        in_reply_to: MsgId,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        msg_id: Option<MsgId>,
-        value: Val,
-    },
-    #[serde(rename = "write")]
-    Write { msg_id: MsgId, key: Key, val: Val },
-    #[serde(rename = "write_ok")]
-    WriteOk { in_reply_to: MsgId },
 }
 
 /// Maelstrom [errors](https://github.com/jepsen-io/maelstrom/blob/main/doc/protocol.md#errors)
@@ -149,6 +120,55 @@ pub enum Init {
     InitOk { in_reply_to: MsgId, msg_id: MsgId },
 }
 
+/// Maelstrom [Lin-kv workload messages](https://github.com/jepsen-io/maelstrom/blob/main/doc/workloads.md#workload-lin-kv)
+#[derive(Deserialize, Serialize, Debug, Eq, PartialEq)]
+#[serde(tag = "type")]
+pub enum LinKv {
+    #[serde(rename = "cas")]
+    Cas {
+        msg_id: MsgId,
+        key: Key,
+        from: Val,
+        to: Val,
+    },
+    #[serde(rename = "cas_ok")]
+    CasOk {
+        in_reply_to: MsgId,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        msg_id: Option<MsgId>,
+    },
+    #[serde(rename = "read")]
+    Read { msg_id: MsgId, key: Key },
+    #[serde(rename = "read_ok")]
+    ReadOk {
+        in_reply_to: MsgId,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        msg_id: Option<MsgId>,
+        value: Val,
+    },
+    #[serde(rename = "write")]
+    Write { msg_id: MsgId, key: Key, value: Val },
+    #[serde(rename = "write_ok")]
+    WriteOk { in_reply_to: MsgId },
+}
+
+/// Maelstrom [Lin-kv workload messages](https://github.com/jepsen-io/maelstrom/blob/main/doc/workloads.md#workload-pn-counter)
+#[derive(Deserialize, Serialize, Debug, Eq, PartialEq)]
+#[serde(tag = "type")]
+pub enum PnCounter {
+    #[serde(rename = "add")]
+    Add { msg_id: MsgId, delta: i64 },
+    #[serde(rename = "read")]
+    Read { msg_id: MsgId },
+    #[serde(rename = "read_ok")]
+    ReadOk {
+        in_reply_to: MsgId,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        msg_id: Option<MsgId>,
+        value: i64,
+    },
+}
+
 /// Maelstrom [message ID](https://github.com/jepsen-io/maelstrom/blob/main/doc/protocol.md#message-bodies)
 pub type MsgId = u64;
 
@@ -161,12 +181,12 @@ pub type Val = Value;
 #[test]
 fn serde_cas_msg() {
     let buf = r#"{"dest":"n1","body":{"key":0,"from":4,"to":2,"type":"cas","msg_id":1},"src":"c11","id":11}"#;
-    let msg: Msg<()> = serde_json::from_str(&buf).expect("message");
+    let msg: Msg<LinKv, ()> = serde_json::from_str(&buf).expect("message");
     if let Msg {
         src,
         dest,
         body:
-            Body::Client(Cas {
+            Workload(LinKv::Cas {
                 msg_id,
                 key,
                 from,
@@ -187,30 +207,36 @@ fn serde_cas_msg() {
 }
 
 #[test]
-fn serde_cas_ok_body() {
-    let buf = r#"{ "type": "cas_ok", "in_reply_to": 1 }"#;
-    let body: Body<()> = serde_json::from_str(&buf).expect("message");
-    if let Body::Client(CasOk {
-        in_reply_to,
-        msg_id,
-    }) = &body
+fn serde_cas_ok_msg() {
+    let buf = r#"{"dest":"n1","body":{ "type": "cas_ok", "in_reply_to": 1 },"src":"c11","id":11}"#;
+    let msg: Msg<LinKv, ()> = serde_json::from_str(&buf).expect("message");
+    if let Msg {
+        src,
+        dest,
+        body: Workload(LinKv::CasOk {
+            in_reply_to,
+            msg_id,
+        }),
+    } = &msg
     {
+        assert_eq!(dest, "n1");
+        assert_eq!(src, "c11");
         assert_eq!(*in_reply_to, 1);
         assert_eq!(msg_id, &None);
     } else {
         panic!("expected cas_ok message")
     }
-    assert_serde_preserves_identity(&body);
+    assert_serde_preserves_identity(&msg);
 }
 
 #[test]
 fn serde_echo_msg() {
     let buf = r#"{"dest":"n1","body":{"echo":"Please echo 36","type":"echo","msg_id":1},"src":"c10","id":10}"#;
-    let msg: Msg<()> = serde_json::from_str(&buf).expect("echo message");
+    let msg: Msg<Echo, ()> = serde_json::from_str(&buf).expect("echo message");
     if let Msg {
         src,
         dest,
-        body: Body::Client(Echo { msg_id, echo }),
+        body: Workload(Echo::Echo { msg_id, echo }),
     } = &msg
     {
         assert_eq!(dest, "n1");
@@ -226,7 +252,7 @@ fn serde_echo_msg() {
 #[test]
 fn serde_init_msg() {
     let buf = r#"{"dest":"n1","body":{"type":"init","node_id":"n1","node_ids":["n1","n2","n3","n4","n5"],"msg_id":1},"src":"c4","id":4}"#;
-    let msg: Msg<()> = serde_json::from_str(&buf).expect("message");
+    let msg: Msg<Echo, ()> = serde_json::from_str(&buf).expect("message");
     if let Msg {
         src,
         dest,
@@ -258,7 +284,7 @@ fn serde_init_msg() {
 #[test]
 fn serde_init_ok_msg() {
     let buf = r#"{"src":"n1","dest":"c4","body":{"type":"init_ok","in_reply_to":1,"msg_id":0}}"#;
-    let msg: Msg<()> = serde_json::from_str(&buf).expect("message");
+    let msg: Msg<Init, ()> = serde_json::from_str(&buf).expect("message");
     if let Msg {
         src,
         dest,
@@ -273,19 +299,19 @@ fn serde_init_ok_msg() {
         assert_eq!(*in_reply_to, 1);
         assert_eq!(*msg_id, 0);
     } else {
-        panic!("expected init_ok message");
+        panic!("expected init_ok message, got {:?}", msg);
     }
     assert_serde_preserves_identity(&msg);
 }
 
 #[test]
-fn serde_read_msg() {
+fn serde_linkv_read_msg() {
     let buf = r#"{"dest":"n4","body":{"key":0,"type":"read","msg_id":1},"src":"c10","id":10}"#;
-    let msg: Msg<()> = serde_json::from_str(&buf).expect("message");
+    let msg: Msg<LinKv, ()> = serde_json::from_str(&buf).expect("message");
     if let Msg {
         src,
         dest,
-        body: Body::Client(Read { msg_id, key }),
+        body: Workload(LinKv::Read { msg_id, key }),
     } = &msg
     {
         assert_eq!(dest, "n4");
@@ -300,15 +326,22 @@ fn serde_read_msg() {
 }
 
 #[test]
-fn serde_read_ok_body() {
-    let buf = r#"{"type": "read_ok", "value": 1, "msg_id": 0 , "in_reply_to": 2}"#;
-    let body: Body<()> = serde_json::from_str(&buf).expect("message");
-    if let Body::Client(ReadOk {
-        in_reply_to,
-        msg_id,
-        value,
-    }) = &body
+fn serde_linkv_read_ok_msg() {
+    let buf = r#"{"dest":"n4","body":{"type": "read_ok", "value": 1, "msg_id": 0 , "in_reply_to": 2},"src":"c10","id":10}"#;
+    let msg: Msg<LinKv, ()> = serde_json::from_str(&buf).expect("message");
+    if let Msg {
+        src,
+        dest,
+        body:
+            Workload(LinKv::ReadOk {
+                in_reply_to,
+                msg_id,
+                value,
+            }),
+    } = &msg
     {
+        assert_eq!(dest, "n4");
+        assert_eq!(src, "c10");
         assert_eq!(value, &json!(1));
         assert_eq!(msg_id, &Some(0));
         assert_eq!(*in_reply_to, 2);
@@ -316,7 +349,54 @@ fn serde_read_ok_body() {
         panic!("expected read message");
     }
 
-    assert_serde_preserves_identity(&body);
+    assert_serde_preserves_identity(&msg);
+}
+
+#[test]
+fn serde_pn_read_msg() {
+    let buf = r#"{"dest":"n1","body":{"type":"read","msg_id":1},"src":"c10","id":10}"#;
+    let msg: Msg<PnCounter, ()> = serde_json::from_str(&buf).expect("message");
+    if let Msg {
+        src,
+        dest,
+        body: Workload(PnCounter::Read { msg_id }),
+    } = &msg
+    {
+        assert_eq!(dest, "n1");
+        assert_eq!(src, "c10");
+        assert_eq!(*msg_id, 1);
+    } else {
+        panic!("expected read message");
+    }
+
+    assert_serde_preserves_identity(&msg);
+}
+
+#[test]
+fn serde_pncounter_read_ok_msg() {
+    let buf = r#"{"dest":"n1","body":{"type":"read_ok","value":1,"msg_id": 2,"in_reply_to":0},"src":"c10","id":10}"#;
+    let msg: Msg<PnCounter, ()> = serde_json::from_str(&buf).expect("message");
+    if let Msg {
+        src,
+        dest,
+        body:
+            Workload(PnCounter::ReadOk {
+                in_reply_to,
+                msg_id,
+                value,
+            }),
+    } = &msg
+    {
+        assert_eq!(dest, "n1");
+        assert_eq!(src, "c10");
+        assert_eq!(value, &json!(1));
+        assert_eq!(msg_id, &Some(2));
+        assert_eq!(*in_reply_to, 0);
+    } else {
+        panic!("expected read message");
+    }
+
+    assert_serde_preserves_identity(&msg);
 }
 
 #[test]
@@ -328,18 +408,18 @@ fn serde_typed_bar() {
     let m = &Msg {
         src: "A".to_string(),
         dest: "B".to_string(),
-        body: Body::Node(bar.clone()),
+        body: Application(bar.clone()),
     };
     let data = serde_json::to_string(m).expect("JSON data");
     println!("{}", data);
-    let de_m: Msg<Typed> = serde_json::from_str(&data).expect(&format!("{:?}", m));
+    let de_m: Msg<Echo, Typed> = serde_json::from_str(&data).expect(&format!("{:?}", m));
     assert_eq!(
         m, &de_m,
         "expected deserialized NetMsg={:?} from data={}, but got NetMsg={:?}",
         m, data, &de_m
     );
     let de_bar = match de_m.body {
-        Body::Node(body) => body,
+        Application(body) => body,
         _ => panic!("expected node body"),
     };
     assert_eq!(
@@ -358,18 +438,18 @@ fn serde_typed_baz() {
     let m = &Msg {
         src: "A".to_string(),
         dest: "B".to_string(),
-        body: Body::Node(baz.clone()),
+        body: Application(baz.clone()),
     };
     let data = serde_json::to_string(m).expect("JSON data");
     println!("{}", data);
-    let de_m: Msg<Typed> = serde_json::from_str(&data).expect(&format!("{:?}", m));
+    let de_m: Msg<Echo, Typed> = serde_json::from_str(&data).expect(&format!("{:?}", m));
     assert_eq!(
         m, &de_m,
         "expected deserialized NetMsg={:?} from data={}, but got NetMsg={:?}",
         m, data, &de_m
     );
     let de_baz = match de_m.body {
-        Body::Node(body) => body,
+        Application(body) => body,
         _ => panic!("expected node body"),
     };
     assert_eq!(
@@ -388,18 +468,18 @@ fn serde_untyped_bar() {
     let m = &Msg {
         src: "A".to_string(),
         dest: "B".to_string(),
-        body: Body::Node(bar.clone()),
+        body: Application(bar.clone()),
     };
     let data = serde_json::to_string(m).expect("JSON data");
     println!("{}", data);
-    let de_m: Msg<Untyped> = serde_json::from_str(&data).expect(&format!("{:?}", m));
+    let de_m: Msg<Echo, Untyped> = serde_json::from_str(&data).expect(&format!("{:?}", m));
     assert_eq!(
         m, &de_m,
         "expected deserialized NetMsg={:?} from data={}, but got NetMsg={:?}",
         m, data, &de_m
     );
     let de_bar = match de_m.body {
-        Body::Node(body) => body,
+        Application(body) => body,
         _ => panic!("expected node body"),
     };
     assert_eq!(
@@ -418,18 +498,18 @@ fn serde_untyped_baz() {
     let m = &Msg {
         src: "A".to_string(),
         dest: "B".to_string(),
-        body: Body::Node(baz.clone()),
+        body: Application(baz.clone()),
     };
     let data = serde_json::to_string(m).expect("JSON data");
     println!("{}", data);
-    let de_m: Msg<Untyped> = serde_json::from_str(&data).expect(&format!("{:?}", m));
+    let de_m: Msg<Echo, Untyped> = serde_json::from_str(&data).expect(&format!("{:?}", m));
     assert_eq!(
         m, &de_m,
         "expected deserialized NetMsg={:?} from data={}, but got NetMsg={:?}",
         m, data, &de_m
     );
     let de_baz = match de_m.body {
-        Body::Node(body) => body,
+        Application(body) => body,
         _ => panic!("expected node body"),
     };
     assert_eq!(
@@ -446,10 +526,10 @@ fn serde_untyped_into_typed() {
         id: 0x2a,
         value: "boo".to_string(),
     };
-    let m = &Msg {
+    let m = &Msg::<Echo, Untyped> {
         src: "A".to_string(),
         dest: "B".to_string(),
-        body: Body::Node(bar.clone()),
+        body: Application(bar.clone()),
     };
     let data = serde_json::to_string(m).expect("JSON data");
     println!("{}", data);

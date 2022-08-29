@@ -23,8 +23,8 @@ use async_trait::async_trait;
 use log::{info, warn};
 use tokio::spawn;
 
-use async_maelstrom::msg::Body::Client;
-use async_maelstrom::msg::Client::{Echo, EchoOk};
+use async_maelstrom::msg::Body::Workload;
+use async_maelstrom::msg::Echo;
 use async_maelstrom::msg::{Msg, MsgId};
 use async_maelstrom::process::{ProcNet, Process};
 use async_maelstrom::runtime::Runtime;
@@ -36,7 +36,7 @@ use async_maelstrom::{Id, Status};
 /// It will echo all valid echo requests, and ignore other messages.
 struct EchoServer {
     args: Vec<String>,
-    net: ProcNet<()>,
+    net: ProcNet<Echo, ()>,
     id: Id,
     ids: Vec<Id>,
     msg_id: AtomicU64,
@@ -61,11 +61,11 @@ impl EchoServer {
 }
 
 #[async_trait]
-impl Process<()> for EchoServer {
+impl Process<Echo, ()> for EchoServer {
     fn init(
         &mut self,
         args: Vec<String>,
-        net: ProcNet<()>,
+        net: ProcNet<Echo, ()>,
         id: Id,
         ids: Vec<Id>,
         start_msg_id: MsgId,
@@ -83,7 +83,7 @@ impl Process<()> for EchoServer {
             match self.net.rxq.recv().await {
                 Ok(Msg {
                     src,
-                    body: Client(Echo { msg_id, echo }),
+                    body: Workload(Echo::Echo { msg_id, echo }),
                     ..
                 }) => {
                     self.net
@@ -91,7 +91,7 @@ impl Process<()> for EchoServer {
                         .send(Msg {
                             src: self.id.clone(),
                             dest: src,
-                            body: Client(EchoOk {
+                            body: Workload(Echo::EchoOk {
                                 in_reply_to: msg_id,
                                 msg_id: Some(self.next_msg_id()),
                                 echo,

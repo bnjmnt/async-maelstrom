@@ -9,7 +9,7 @@ license-file = "LICENSE"
 name = "async-maelstrom"
 readme = "README.md"
 repository = "https://github.com/bnjmnt/async-maelstrom"
-version = "0.1.1"
+version = "0.1.2"
 
 [dependencies]
 async-std = { version = "1", features = ["async-io"] }

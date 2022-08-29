@@ -18,12 +18,12 @@ use tokio::spawn;
 #[cfg(test)]
 use tokio::test;
 
+use crate::msg::Body;
 #[cfg(test)]
-use crate::msg::Body::Client;
-#[cfg(test)]
-use crate::msg::Client::{Echo, EchoOk};
-use crate::msg::Init::{Init, InitOk};
-use crate::msg::{Body, Msg, MsgId};
+use crate::msg::Body::Workload;
+use crate::msg::Echo;
+use crate::msg::Init;
+use crate::msg::{Msg, MsgId};
 use crate::process::{ProcNet, Process};
 #[cfg(test)]
 use crate::Error::TestIO;
@@ -39,23 +39,26 @@ const QUEUE_DEPTH: usize = 16;
 ///
 /// A runtime will create, initialize and run an instance of `P`.
 ///
-/// `M` is a node-to-node protocol message.
-/// `M` is generally an enumeration of message types, or the unit type if not needed.
-pub struct Runtime<M, P: Process<M>>
+/// Parameters
+/// - `W` the workload body type, e.g. [Echo]
+/// - `A` the application body type
+pub struct Runtime<W, A, P: Process<W, A>>
 where
-    M: DeserializeOwned + Serialize,
+    W: DeserializeOwned + Serialize,
+    A: DeserializeOwned + Serialize,
 {
     line_io: Box<dyn LineIO + Send + Sync>,
     process: P,
     /// The process` receive queue
-    process_rxq: Sender<Msg<M>>,
+    process_rxq: Sender<Msg<W, A>>,
     /// The process` transmit queue
-    process_txq: Receiver<Msg<M>>,
+    process_txq: Receiver<Msg<W, A>>,
 }
 
-impl<M, P: Process<M>> Runtime<M, P>
+impl<W, A, P: Process<W, A>> Runtime<W, A, P>
 where
-    M: DeserializeOwned + Serialize,
+    W: DeserializeOwned + Serialize,
+    A: DeserializeOwned + Serialize,
 {
     // Create a new runtime
     pub async fn new(args: Vec<String>, process: P) -> Result<Self> {
@@ -138,17 +141,17 @@ where
         start_msg_id: MsgId,
     ) -> Result<(String, Vec<String>, MsgId)> {
         let init_data = line_io.read_line().await?;
-        let Msg { src, body, .. }: Msg<()> = serde_json::from_str(&init_data)?;
+        let Msg { src, body, .. }: Msg<Echo, ()> = serde_json::from_str(&init_data)?;
         match body {
-            Body::Init(Init {
+            Body::Init(Init::Init {
                 msg_id,
                 node_id,
                 node_ids,
             }) => {
-                let rsp: Msg<()> = Msg {
+                let rsp: Msg<Echo, ()> = Msg {
                     src: node_id.clone(),
                     dest: src,
-                    body: Body::Init(InitOk {
+                    body: Body::Init(Init::InitOk {
                         in_reply_to: msg_id,
                         msg_id: start_msg_id,
                     }),
@@ -162,13 +165,13 @@ where
     }
 
     /// Get the next message
-    async fn recv_msg(&self) -> Result<Msg<M>> {
+    async fn recv_msg(&self) -> Result<Msg<W, A>> {
         let line = self.line_io.read_line().await?;
-        serde_json::from_str::<Msg<M>>(&line).map_err(|e| Deserialize(e))
+        serde_json::from_str::<Msg<W, A>>(&line).map_err(|e| Deserialize(e))
     }
 
     /// Send a message
-    async fn send_msg(&self, msg: &Msg<M>) -> Status {
+    async fn send_msg(&self, msg: &Msg<W, A>) -> Status {
         let line = serde_json::to_string(&msg)?;
         self.line_io.write_line(&line).await?;
         Ok(())
@@ -237,7 +240,7 @@ impl LineIO for QLineIO {
 #[cfg(test)]
 struct EchoProcess {
     args: Vec<String>,
-    net: ProcNet<()>,
+    net: ProcNet<Echo, ()>,
     id: Id,
     ids: Vec<Id>,
 }
@@ -256,11 +259,11 @@ impl Default for EchoProcess {
 
 #[cfg(test)]
 #[async_trait]
-impl Process<()> for EchoProcess {
+impl Process<Echo, ()> for EchoProcess {
     fn init(
         &mut self,
         args: Vec<String>,
-        net: ProcNet<()>,
+        net: ProcNet<Echo, ()>,
         id: Id,
         ids: Vec<Id>,
         _start_msg_id: MsgId,
@@ -277,7 +280,7 @@ impl Process<()> for EchoProcess {
             match self.net.rxq.recv().await {
                 Ok(Msg {
                     src,
-                    body: Client(Echo { msg_id, echo }),
+                    body: Workload(Echo::Echo { msg_id, echo }),
                     ..
                 }) => {
                     self.net
@@ -285,7 +288,7 @@ impl Process<()> for EchoProcess {
                         .send(Msg {
                             src: self.id.clone(),
                             dest: src,
-                            body: Client(EchoOk {
+                            body: Workload(Echo::EchoOk {
                                 in_reply_to: msg_id,
                                 msg_id: None,
                                 echo,
@@ -310,10 +313,10 @@ async fn test_runtime() {
     // Send the init message so it is waiting for the initializer
     let a = "a".to_string();
     let test = "test".to_string();
-    let init = Msg::<()> {
+    let init = Msg::<Echo, ()> {
         src: test.clone(),
         dest: a.clone(),
-        body: Body::Init(Init {
+        body: Body::Init(Init::Init {
             msg_id: 0,
             node_id: a.clone(),
             node_ids: vec![a.clone()],
@@ -332,10 +335,10 @@ async fn test_runtime() {
 
     // Verify process responds with init_ok
     let init_ok_data: String = rxq.recv().await.expect("recv init_ok");
-    if let Msg::<()> {
+    if let Msg::<Echo, ()> {
         src,
         dest,
-        body: Body::Init(InitOk { in_reply_to, .. }),
+        body: Body::Init(Init::InitOk { in_reply_to, .. }),
     } = serde_json::from_str(&init_ok_data).expect("deserialized init_ok")
     {
         assert_eq!(in_reply_to, 0);
@@ -355,10 +358,10 @@ async fn test_runtime() {
     // Send echo requests and receive responses ...
     for msg_id in 0..5 {
         let echo_data = Value::String(format!("boo! {}", msg_id));
-        let echo = Msg::<()> {
+        let echo = Msg::<Echo, ()> {
             src: test.clone(),
             dest: a.clone(),
-            body: Client(Echo {
+            body: Workload(Echo::Echo {
                 msg_id,
                 echo: echo_data.clone(),
             }),
@@ -367,11 +370,11 @@ async fn test_runtime() {
         txq.send(serde_json::to_string(&echo).expect("serialized"))
             .await
             .expect("sent echo request");
-        let echoed: Msg<()> =
+        let echoed: Msg<Echo, ()> =
             serde_json::from_str(&rxq.recv().await.expect("response")).expect("deserialized");
         if let Msg {
             body:
-                Client(Echo {
+                Workload(Echo::Echo {
                     msg_id: in_reply_to,
                     echo: echoed_data,
                 }),
