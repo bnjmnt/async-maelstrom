@@ -91,10 +91,6 @@ where
         })
     }
 
-    pub fn is_shutdown(&self) -> bool {
-        return self.process_rxq.is_closed() && self.process_txq.is_closed();
-    }
-
     /// Run the process
     ///
     /// Run the runtime`s node process. The call will return
@@ -114,7 +110,7 @@ where
         Ok(())
     }
 
-    /// Run IO ingress
+    /// Run IO ingress until [Self::shutdown] is called
     pub async fn run_io_ingress(&self) {
         while let Ok(_) = self.run_one_io_ingress().await {}
     }
@@ -124,7 +120,7 @@ where
         Ok(())
     }
 
-    /// Initiate shutdown
+    /// Shutdown the runtime
     pub fn shutdown(&self) {
         self.process_rxq.close();
         self.process_txq.close();
@@ -164,7 +160,7 @@ where
         }
     }
 
-    /// Get the next [Msg]
+    /// Get the next message
     async fn recv_msg(&self) -> Result<Msg<M>> {
         serde_json::from_str::<Msg<M>>(&self.line_io.read_line().await?).map_err(|e| Deserialize(e))
     }
@@ -184,30 +180,6 @@ trait LineIO {
     async fn read_line(&self) -> Result<String>;
     async fn write_line(&self, line: &str) -> Status;
     fn close(&self);
-}
-
-/// LineIO implementation for local OS process testing
-#[cfg(test)]
-struct QLineIO {
-    rxq: Receiver<String>,
-    txq: Sender<String>,
-}
-
-#[async_trait]
-#[cfg(test)]
-impl LineIO for QLineIO {
-    async fn read_line(&self) -> Result<String> {
-        self.rxq.recv().await.map_err(|_| TestIO)
-    }
-
-    async fn write_line(&self, line: &str) -> Status {
-        self.txq.send(line.to_string()).await.map_err(|_| TestIO)
-    }
-
-    fn close(&self) {
-        self.rxq.close();
-        self.txq.close();
-    }
 }
 
 /// Line IO from `stdin` and `stdout`
@@ -232,7 +204,31 @@ impl LineIO for StdLineIO {
     }
 
     fn close(&self) {
-        // No op. stdin and stdout will close when the Maelstrom system has shutdown.
+        // No op. stdin and stdout will close when Maelstrom closes its end.
+    }
+}
+
+/// LineIO implementation for local OS process testing
+#[cfg(test)]
+struct QLineIO {
+    rxq: Receiver<String>,
+    txq: Sender<String>,
+}
+
+#[async_trait]
+#[cfg(test)]
+impl LineIO for QLineIO {
+    async fn read_line(&self) -> Result<String> {
+        self.rxq.recv().await.map_err(|_| TestIO)
+    }
+
+    async fn write_line(&self, line: &str) -> Status {
+        self.txq.send(line.to_string()).await.map_err(|_| TestIO)
+    }
+
+    fn close(&self) {
+        self.rxq.close();
+        self.txq.close();
     }
 }
 
@@ -355,9 +351,8 @@ async fn test_runtime() {
     let t3 = spawn(async move { r3.run_process().await });
 
     // Send echo requests and receive responses ...
-    let echo_data_template = "boo! _id_".to_string();
     for msg_id in 0..5 {
-        let echo_data = Value::String(echo_data_template.replace("_id_", &msg_id.to_string()));
+        let echo_data = Value::String(format!("boo! {}", msg_id));
         let echo = Msg::<()> {
             src: test.clone(),
             dest: a.clone(),

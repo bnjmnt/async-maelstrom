@@ -115,21 +115,19 @@ async fn main() -> Status {
 
     // Create an echo process and a runtime to execute it
     let process: EchoServer = Default::default();
-    let runtime = Arc::new(Runtime::new(env::args().collect(), process).await?);
+    let r = Arc::new(Runtime::new(env::args().collect(), process).await?);
 
     // Drive the runtime, and ...
-    let rh1 = runtime.clone();
-    let rh2 = runtime.clone();
-    let rh3 = runtime.clone();
-    let t1 = spawn(async move { rh1.run_io_egress().await });
-    let t2 = spawn(async move { rh2.run_io_ingress().await });
-    let t3 = spawn(async move { rh3.run_process().await });
+    let (r1, r2, r3) = (r.clone(), r.clone(), r.clone());
+    let t1 = spawn(async move { r1.run_io_egress().await });
+    let t2 = spawn(async move { r2.run_io_ingress().await });
+    let t3 = spawn(async move { r3.run_process().await });
 
     // ... wait until the Maelstrom system closes stdin and stdout
     eprintln!("running");
     let _ignored = tokio::join!(t1, t2, t3);
 
-    eprintln!("exiting");
+    eprintln!("stopped");
 
     Ok(())
 }

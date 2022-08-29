@@ -1,28 +1,30 @@
 //! Maelstrom [network message protocol](https://github.com/jepsen-io/maelstrom/blob/main/doc/protocol.md#messages)
 //!
 //! A message Maelstrom workload client message can be created as follows
-//! ```
-//! use async_maelstrom::msg::{Client, Msg};
+//! ```no_compile_
+//! use async_maelstrom::msg::Msg;
 //! use async_maelstrom::msg::Body::Client;
-//! use async_maelstrom::msg::Client::Echo;
-//! use async_maelstrom::msg::Client::EchoOk;
+//! use async_maelstrom::msg::Client::{Echo, EchoOk};
 //!
 //! // Receive an echo request
-//! let Msg {
-//!     src: client,
+//! let request = recv();
+//! if let Msg {
+//!     src: client_id,
 //!     body: Client(Echo {msg_id, echo}),
 //!     ..
-//! } = recv_msg();
-//!
-//! // Create an echo response
-//! let echo_ok: Msg<()> = Msg {
-//!     src: client,
-//!     dest: "n1".to_string(),
-//!     body: Client(EchoOk {
-//!         in_reply_to: msg_id,
-//!         msg_id: Some(5),
-//!         echo,
-//! })};
+//! } = request {
+//!     // Create an echo response
+//!     let node_id = "n1".to_string();
+//!     let response: Msg<()> = Msg {
+//!         src: node_id,
+//!         dest: client_id,
+//!         body: Client(EchoOk {
+//!             in_reply_to: msg_id,
+//!             msg_id: Some(5),
+//!             echo,
+//!     })};
+//!     send(response);
+//! }
 //! ```
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -322,7 +324,6 @@ fn serde_read_ok_msg() {
     })
 }
 
-#[allow(unused)]
 #[cfg(test)]
 #[derive(Clone, Deserialize, Serialize, Debug, Eq, PartialEq)]
 #[serde(tag = "type")]
@@ -333,7 +334,6 @@ enum Typed {
     Baz { id: u64, value: String },
 }
 
-#[allow(unused)]
 #[cfg(test)]
 #[derive(Clone, Deserialize, Serialize, Debug, Eq, PartialEq)]
 #[serde(untagged)]
