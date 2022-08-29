@@ -7,7 +7,7 @@
 //! [install](https://github.com/jepsen-io/maelstrom/blob/main/doc/01-getting-ready/index.md#installation)
 //! Maelstrom.
 //!
-//! To build and run the echo server with Maelstrom
+//! Build and run the echo server with Maelstrom
 //! ```ignore
 //! $ git clone https://github.com/bnjmnt/async-maelstrom.git
 //! $ cd async-maelstrom/
