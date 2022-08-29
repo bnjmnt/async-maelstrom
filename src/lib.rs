@@ -25,7 +25,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::msg::Msg;
-use crate::Error::{Deserialize, Shutdown};
+use crate::Error::{Deserialize, Shutdown, IO};
 
 pub mod msg;
 pub mod process;
@@ -60,6 +60,11 @@ pub enum Error {
 
 unsafe impl Send for Error {}
 
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        IO(e)
+    }
+}
 impl From<serde_json::Error> for Error {
     fn from(e: serde_json::Error) -> Self {
         Deserialize(e)

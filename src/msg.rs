@@ -26,9 +26,25 @@
 //!     send(response);
 //! }
 //! ```
+use std::fmt::Debug;
+
+#[cfg(test)]
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use serde_json::json;
 use serde_json::Value;
 
+#[cfg(test)]
+use crate::msg::Client::Cas;
+#[cfg(test)]
+use crate::msg::Client::CasOk;
+#[cfg(test)]
+use crate::msg::Client::Echo;
+#[cfg(test)]
+use crate::msg::Client::Read;
+#[cfg(test)]
+use crate::msg::Client::ReadOk;
 use crate::{ErrorCode, Id};
 
 /// Maelstrom network [message](https://github.com/jepsen-io/maelstrom/blob/main/doc/protocol.md#messages)
@@ -80,7 +96,11 @@ pub enum Client {
         to: Val,
     },
     #[serde(rename = "cas_ok")]
-    CasOk { in_reply_to: MsgId },
+    CasOk {
+        in_reply_to: MsgId,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        msg_id: Option<MsgId>,
+    },
     #[serde(rename = "echo")]
     Echo { msg_id: MsgId, echo: Value },
     #[serde(rename = "echo_ok")]
@@ -93,7 +113,12 @@ pub enum Client {
     #[serde(rename = "read")]
     Read { msg_id: MsgId, key: Key },
     #[serde(rename = "read_ok")]
-    ReadOk { in_reply_to: MsgId, val: Val },
+    ReadOk {
+        in_reply_to: MsgId,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        msg_id: Option<MsgId>,
+        value: Val,
+    },
     #[serde(rename = "write")]
     Write { msg_id: MsgId, key: Key, val: Val },
     #[serde(rename = "write_ok")]
@@ -134,33 +159,168 @@ pub type Key = Value;
 pub type Val = Value;
 
 #[test]
-fn serde_error_msg() {
-    verify_serde(&Msg {
-        src: "A".to_string(),
-        dest: "B".to_string(),
-        body: Body::Error(Error {
-            in_reply_to: 0x2a,
-            code: 0x1b,
-            text: "an error!".to_string(),
-        }),
-    })
+fn serde_cas_msg() {
+    let buf = r#"{"dest":"n1","body":{"key":0,"from":4,"to":2,"type":"cas","msg_id":1},"src":"c11","id":11}"#;
+    let msg: Msg<()> = serde_json::from_str(&buf).expect("message");
+    if let Msg {
+        src,
+        dest,
+        body:
+            Body::Client(Cas {
+                msg_id,
+                key,
+                from,
+                to,
+            }),
+    } = &msg
+    {
+        assert_eq!(dest, "n1");
+        assert_eq!(src, "c11");
+        assert_eq!(key, &json!(0));
+        assert_eq!(from, &json!(4));
+        assert_eq!(to, &json!(2));
+        assert_eq!(*msg_id, 1);
+    } else {
+        panic!("expected cas message")
+    }
+    assert_serde_preserves_identity(&msg);
+}
+
+#[test]
+fn serde_cas_ok_body() {
+    let buf = r#"{ "type": "cas_ok", "in_reply_to": 1 }"#;
+    let body: Body<()> = serde_json::from_str(&buf).expect("message");
+    if let Body::Client(CasOk {
+        in_reply_to,
+        msg_id,
+    }) = &body
+    {
+        assert_eq!(*in_reply_to, 1);
+        assert_eq!(msg_id, &None);
+    } else {
+        panic!("expected cas_ok message")
+    }
+    assert_serde_preserves_identity(&body);
+}
+
+#[test]
+fn serde_echo_msg() {
+    let buf = r#"{"dest":"n1","body":{"echo":"Please echo 36","type":"echo","msg_id":1},"src":"c10","id":10}"#;
+    let msg: Msg<()> = serde_json::from_str(&buf).expect("echo message");
+    if let Msg {
+        src,
+        dest,
+        body: Body::Client(Echo { msg_id, echo }),
+    } = &msg
+    {
+        assert_eq!(dest, "n1");
+        assert_eq!(src, "c10");
+        assert_eq!(echo, "Please echo 36");
+        assert_eq!(*msg_id, 1);
+    } else {
+        panic!("expected echo message")
+    }
+    assert_serde_preserves_identity(&msg);
 }
 
 #[test]
 fn serde_init_msg() {
-    verify_serde(&Msg {
-        src: "A".to_string(),
-        dest: "B".to_string(),
-        body: Body::Init(Init::Init {
-            msg_id: 0x2a,
-            node_id: "NODE A".to_string(),
-            node_ids: vec!["NODE_A".to_string(), "NODE_B".to_string()],
-        }),
-    })
+    let buf = r#"{"dest":"n1","body":{"type":"init","node_id":"n1","node_ids":["n1","n2","n3","n4","n5"],"msg_id":1},"src":"c4","id":4}"#;
+    let msg: Msg<()> = serde_json::from_str(&buf).expect("message");
+    if let Msg {
+        src,
+        dest,
+        body:
+            Body::Init(Init::Init {
+                msg_id,
+                node_id,
+                node_ids,
+            }),
+    } = &msg
+    {
+        assert_eq!(dest, "n1");
+        assert_eq!(src, "c4");
+        assert_eq!(node_id, "n1");
+        assert_eq!(
+            node_ids,
+            &vec!["n1", "n2", "n3", "n4", "n5"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(*msg_id, 1);
+    } else {
+        panic!("expected init message")
+    }
+    assert_serde_preserves_identity(&msg);
 }
 
 #[test]
-fn serde_node_typed_bar() {
+fn serde_init_ok_msg() {
+    let buf = r#"{"src":"n1","dest":"c4","body":{"type":"init_ok","in_reply_to":1,"msg_id":0}}"#;
+    let msg: Msg<()> = serde_json::from_str(&buf).expect("message");
+    if let Msg {
+        src,
+        dest,
+        body: Body::Init(Init::InitOk {
+            in_reply_to,
+            msg_id,
+        }),
+    } = &msg
+    {
+        assert_eq!(dest, "c4");
+        assert_eq!(src, "n1");
+        assert_eq!(*in_reply_to, 1);
+        assert_eq!(*msg_id, 0);
+    } else {
+        panic!("expected init_ok message");
+    }
+    assert_serde_preserves_identity(&msg);
+}
+
+#[test]
+fn serde_read_msg() {
+    let buf = r#"{"dest":"n4","body":{"key":0,"type":"read","msg_id":1},"src":"c10","id":10}"#;
+    let msg: Msg<()> = serde_json::from_str(&buf).expect("message");
+    if let Msg {
+        src,
+        dest,
+        body: Body::Client(Read { msg_id, key }),
+    } = &msg
+    {
+        assert_eq!(dest, "n4");
+        assert_eq!(src, "c10");
+        assert_eq!(key, &json!(0));
+        assert_eq!(*msg_id, 1);
+    } else {
+        panic!("expected read message");
+    }
+
+    assert_serde_preserves_identity(&msg);
+}
+
+#[test]
+fn serde_read_ok_body() {
+    let buf = r#"{"type": "read_ok", "value": 1, "msg_id": 0 , "in_reply_to": 2}"#;
+    let body: Body<()> = serde_json::from_str(&buf).expect("message");
+    if let Body::Client(ReadOk {
+        in_reply_to,
+        msg_id,
+        value,
+    }) = &body
+    {
+        assert_eq!(value, &json!(1));
+        assert_eq!(msg_id, &Some(0));
+        assert_eq!(*in_reply_to, 2);
+    } else {
+        panic!("expected read message");
+    }
+
+    assert_serde_preserves_identity(&body);
+}
+
+#[test]
+fn serde_typed_bar() {
     let bar = Typed::Bar {
         id: 0x2a,
         value: "boo".to_string(),
@@ -189,10 +349,8 @@ fn serde_node_typed_bar() {
     );
 }
 
-// Tests live below here ...
-
 #[test]
-fn serde_node_typed_baz() {
+fn serde_typed_baz() {
     let baz = Typed::Baz {
         id: 0x2a,
         value: "boo".to_string(),
@@ -222,7 +380,7 @@ fn serde_node_typed_baz() {
 }
 
 #[test]
-fn serde_node_untyped_bar() {
+fn serde_untyped_bar() {
     let bar = Untyped::Bar {
         id: 0x2a,
         value: "boo".to_string(),
@@ -252,7 +410,7 @@ fn serde_node_untyped_bar() {
 }
 
 #[test]
-fn serde_node_untyped_baz() {
+fn serde_untyped_baz() {
     let baz = Untyped::Baz {
         key: 0x2a,
         value: "boo".to_string(),
@@ -283,7 +441,7 @@ fn serde_node_untyped_baz() {
 
 /// Verify that a [Typed] can't be serde`d into an [Untyped]
 #[test]
-fn serde_node_untyped_into_typed() {
+fn serde_untyped_into_typed() {
     let bar = Untyped::Bar {
         id: 0x2a,
         value: "boo".to_string(),
@@ -300,30 +458,7 @@ fn serde_node_untyped_into_typed() {
     }
 }
 
-#[test]
-fn serde_read_msg() {
-    verify_serde(&Msg {
-        src: "A".to_string(),
-        dest: "B".to_string(),
-        body: Body::Client(Client::Read {
-            msg_id: 0x2a,
-            key: Default::default(),
-        }),
-    })
-}
-
-#[test]
-fn serde_read_ok_msg() {
-    verify_serde(&Msg {
-        src: "A".to_string(),
-        dest: "B".to_string(),
-        body: Body::Client(Client::ReadOk {
-            in_reply_to: 0x2a,
-            val: Value::Bool(true),
-        }),
-    })
-}
-
+/// Typed body has a `type` tag to indicate deserialization target type
 #[cfg(test)]
 #[derive(Clone, Deserialize, Serialize, Debug, Eq, PartialEq)]
 #[serde(tag = "type")]
@@ -334,6 +469,9 @@ enum Typed {
     Baz { id: u64, value: String },
 }
 
+/// Untyped body has no `type` tag to indicate deserialization target type
+///
+/// Untyped bodies are deserialized into a specifiedstruct or the first enumerated type that fits.
 #[cfg(test)]
 #[derive(Clone, Deserialize, Serialize, Debug, Eq, PartialEq)]
 #[serde(untagged)]
@@ -344,14 +482,18 @@ enum Untyped {
     Baz { key: u64, value: String },
 }
 
+/// Assert `deserialize(serialize(m)) == m`
 #[cfg(test)]
-fn verify_serde(m: &Msg<Typed>) {
+fn assert_serde_preserves_identity<M>(m: &M)
+where
+    M: Debug + Eq + PartialEq + Serialize + DeserializeOwned,
+{
     let data = serde_json::to_string(m).expect("JSON data");
     println!("{}", data);
-    let de_m: Msg<Typed> = serde_json::from_str(&data).expect(&format!("{:?}", m));
+    let de_m: M = serde_json::from_str(&data).expect(&format!("{:?}", m));
     assert_eq!(
         m, &de_m,
-        "expected deserialized NetMsg={:?} from data={}, but got NetMsg={:?}",
+        "expected deserialized M={:?} from data={}, but got M={:?}",
         m, data, &de_m
     );
 }

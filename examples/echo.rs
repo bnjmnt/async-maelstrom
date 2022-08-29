@@ -20,7 +20,7 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use log::warn;
+use log::{info, warn};
 use tokio::spawn;
 
 use async_maelstrom::msg::Body::Client;
@@ -111,7 +111,9 @@ impl Process<()> for EchoServer {
 /// See module level docs for details.
 #[tokio::main]
 async fn main() -> Status {
-    eprintln!("starting");
+    // Log to stderr where Maelstrom will capture it
+    env_logger::init();
+    info!("starting");
 
     // Create an echo process and a runtime to execute it
     let process: EchoServer = Default::default();
@@ -124,10 +126,10 @@ async fn main() -> Status {
     let t3 = spawn(async move { r3.run_process().await });
 
     // ... wait until the Maelstrom system closes stdin and stdout
-    eprintln!("running");
+    info!("running");
     let _ignored = tokio::join!(t1, t2, t3);
 
-    eprintln!("stopped");
+    info!("stopped");
 
     Ok(())
 }

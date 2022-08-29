@@ -8,6 +8,7 @@ use async_std::io::stdin;
 use async_std::io::stdout;
 use async_std::io::WriteExt;
 use async_trait::async_trait;
+use log::info;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 #[cfg(test)]
@@ -26,7 +27,7 @@ use crate::msg::{Body, Msg, MsgId};
 use crate::process::{ProcNet, Process};
 #[cfg(test)]
 use crate::Error::TestIO;
-use crate::Error::{Deserialize, UnexpectedMsg, IO};
+use crate::Error::{Deserialize, UnexpectedMsg};
 #[cfg(test)]
 use crate::Id;
 use crate::Result;
@@ -162,12 +163,15 @@ where
 
     /// Get the next message
     async fn recv_msg(&self) -> Result<Msg<M>> {
-        serde_json::from_str::<Msg<M>>(&self.line_io.read_line().await?).map_err(|e| Deserialize(e))
+        let line = self.line_io.read_line().await?;
+        serde_json::from_str::<Msg<M>>(&line).map_err(|e| Deserialize(e))
     }
 
     /// Send a message
     async fn send_msg(&self, msg: &Msg<M>) -> Status {
-        self.line_io.write_line(&serde_json::to_string(&msg)?).await
+        let line = serde_json::to_string(&msg)?;
+        self.line_io.write_line(&line).await?;
+        Ok(())
     }
 }
 
@@ -189,18 +193,16 @@ struct StdLineIO {}
 impl LineIO for StdLineIO {
     async fn read_line(&self) -> Result<String> {
         let mut line = String::new();
-        stdin()
-            .read_line(&mut line)
-            .await
-            .map(|_| line)
-            .map_err(|e| IO(e))
+        stdin().read_line(&mut line).await?;
+        info!("received: {}", line);
+        Ok(line)
     }
 
     async fn write_line(&self, line: &str) -> Status {
-        if let Err(e) = stdout().write_all(line.as_bytes()).await {
-            return Err(IO(e));
-        }
-        stdout().write_all("\n".as_bytes()).await.map_err(|e| IO(e))
+        stdout().write_all(line.as_bytes()).await?;
+        stdout().write_all("\n".as_bytes()).await?;
+        info!("sent {}", line);
+        Ok(())
     }
 
     fn close(&self) {
