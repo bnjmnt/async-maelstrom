@@ -39,8 +39,8 @@ where
 ///
 /// A process receives, processes and, if necessary, responds to
 /// - [Maelstrom workload messages](https://github.com/jepsen-io/maelstrom/blob/main/doc/workloads.md)
-/// - node-to-node messages according to the application's protocol
-/// that are delivered by the [crate::runtime::Runtime] via the process's [ProcNet] instance.
+/// - node-to-node messages according to the application's protocol that are delivered by the
+///   [crate::runtime::Runtime] via the process's [ProcNet] instance.
 ///
 /// `M` s an application protocol message.
 #[async_trait]

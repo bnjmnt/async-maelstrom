@@ -8,10 +8,12 @@
 //! Maelstrom.
 //!
 //! To build and run the echo server with Maelstrom
-//! 1. `$ git clone https://github.com/bnjmnt/async-maelstrom.git`
-//! 2. `$ cd async-maelstrom/`
-//! 3. `$ cargo b --example echo`
-//! 4. `$ maelstrom test -w echo --bin target/release/examples/echo --time-limit 10`
+//! ```ignore
+//! $ git clone https://github.com/bnjmnt/async-maelstrom.git
+//! $ cd async-maelstrom/
+//! $ cargo b --example echo
+//! $ maelstrom test -w echo --bin target/release/examples/echo --time-limit 10
+//! ```
 use std::env;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::SeqCst;

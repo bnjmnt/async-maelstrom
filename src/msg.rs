@@ -1,4 +1,29 @@
 //! Maelstrom [network message protocol](https://github.com/jepsen-io/maelstrom/blob/main/doc/protocol.md#messages)
+//!
+//! A message Maelstrom workload client message can be created as follows
+//! ```
+//! use async_maelstrom::msg::{Client, Msg};
+//! use async_maelstrom::msg::Body::Client;
+//! use async_maelstrom::msg::Client::Echo;
+//! use async_maelstrom::msg::Client::EchoOk;
+//!
+//! // Receive an echo request
+//! let Msg {
+//!     src: client,
+//!     body: Client(Echo {msg_id, echo}),
+//!     ..
+//! } = recv_msg();
+//!
+//! // Create an echo response
+//! let echo_ok: Msg<()> = Msg {
+//!     src: client,
+//!     dest: "n1".to_string(),
+//!     body: Client(EchoOk {
+//!         in_reply_to: msg_id,
+//!         msg_id: Some(5),
+//!         echo,
+//! })};
+//! ```
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
